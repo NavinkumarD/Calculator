@@ -2,58 +2,130 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Calculator Web App</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-Time Chat Application</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="calculator">
-    <h1>Calculator</h1>
-    <input type="text" id="display" readonly />
-    <div class="buttons">
-      <button>7</button>
-      <button>8</button>
-      <button>9</button>
-      <button class="operator">/</button>
+  <main class="chat-app">
+    <header class="chat-header">
+      <div>
+        <h1>Real-Time Chat</h1>
+        <p>Messages sync instantly across open tabs.</p>
+      </div>
+      <span class="status" id="status">Connected</span>
+    </header>
 
-      <button>4</button>
-      <button>5</button>
-      <button>6</button>
-      <button class="operator">*</button>
+    <section id="messages" class="messages" aria-live="polite"></section>
 
-      <button>1</button>
-      <button>2</button>
-      <button>3</button>
-      <button class="operator">-</button>
-
-      <button>0</button>
-      <button>.</button>
-      <button class="equal">=</button>
-      <button class="operator">+</button>
-
-      <button class="clear">C</button>
-    </div>
-  </div>
+    <form id="chat-form" class="chat-form" autocomplete="off">
+      <div class="row">
+        <input id="name" type="text" maxlength="24" placeholder="Your name" required />
+        <button type="button" id="clear-chat" class="clear">Clear Chat</button>
+      </div>
+      <div class="row">
+        <input id="message" type="text" maxlength="300" placeholder="Type a message..." required />
+        <button type="submit" class="send">Send</button>
+      </div>
+    </form>
+  </main>
 
   <script>
-    const display = document.getElementById('display');
-    const buttons = document.querySelectorAll('button');
+    const channel = new BroadcastChannel('realtime-chat');
+    const storageKey = 'realtime-chat-history-v1';
+    const tabId = crypto.randomUUID();
 
-    buttons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (btn.classList.contains('equal')) {
-          try { display.value = eval(display.value); }
-          catch { display.value = 'Error'; }
-        }
-        else if (btn.classList.contains('clear')) {
-          display.value = '';
-        }
-        else {
-          display.value += btn.textContent;
-        }
-      });
+    const form = document.getElementById('chat-form');
+    const nameInput = document.getElementById('name');
+    const messageInput = document.getElementById('message');
+    const messagesEl = document.getElementById('messages');
+    const clearBtn = document.getElementById('clear-chat');
+
+    const getHistory = () => {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey)) || [];
+      } catch {
+        return [];
+      }
+    };
+
+    const saveHistory = (messages) => {
+      localStorage.setItem(storageKey, JSON.stringify(messages.slice(-100)));
+    };
+
+    const formatTime = (timestamp) => new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
     });
+
+    const renderMessage = (msg) => {
+      const item = document.createElement('article');
+      item.className = `message ${msg.senderId === tabId ? 'self' : 'other'}`;
+
+      item.innerHTML = `
+        <div class="meta">
+          <strong>${msg.name}</strong>
+          <time>${formatTime(msg.timestamp)}</time>
+        </div>
+        <p>${msg.text}</p>
+      `;
+
+      messagesEl.appendChild(item);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    const appendAndStore = (msg) => {
+      const history = getHistory();
+      history.push(msg);
+      saveHistory(history);
+      renderMessage(msg);
+    };
+
+    const loadHistory = () => {
+      const history = getHistory();
+      history.forEach(renderMessage);
+    };
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+
+      const name = nameInput.value.trim();
+      const text = messageInput.value.trim();
+
+      if (!name || !text) return;
+
+      const payload = {
+        senderId: tabId,
+        name,
+        text,
+        timestamp: Date.now()
+      };
+
+      appendAndStore(payload);
+      channel.postMessage(payload);
+      messageInput.value = '';
+      messageInput.focus();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      localStorage.removeItem(storageKey);
+      messagesEl.innerHTML = '';
+      channel.postMessage({ type: 'clear', senderId: tabId });
+    });
+
+    channel.onmessage = (event) => {
+      const data = event.data;
+      if (data.type === 'clear') {
+        localStorage.removeItem(storageKey);
+        messagesEl.innerHTML = '';
+        return;
+      }
+
+      appendAndStore(data);
+    };
+
+    loadHistory();
   </script>
 </body>
 </html>
